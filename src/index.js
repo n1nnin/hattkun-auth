@@ -5,10 +5,11 @@
 const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const ALLOWED_ORIGINS = [
+  'https://hattkun.hattoripiano-lesson.com',
   'https://hattkun-programming.moroku0519.workers.dev',
   'http://localhost:4321',
 ];
-const CMS_ORIGIN = 'https://hattkun-programming.moroku0519.workers.dev';
+const CMS_ORIGIN = 'https://hattkun.hattoripiano-lesson.com';
 
 function corsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
