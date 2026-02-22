@@ -70,28 +70,41 @@ export default {
         });
       }
 
-      // Return token to CMS via postMessage
+      // Return token to CMS via postMessage (Decap CMS handshake protocol)
+      const safeToken = tokenData.access_token.replace(/[^a-zA-Z0-9_-]/g, '');
       const html = `<!doctype html>
 <html>
 <head><title>認証完了</title></head>
 <body>
 <script>
 (function() {
-  function sendMessage(provider, token) {
-    const data = JSON.stringify({
-      token: token,
-      provider: provider,
-    });
-    window.opener && window.opener.postMessage(
-      'authorization:github:success:' + data,
-      '*'
-    );
-    setTimeout(function() { window.close(); }, 1000);
+  var provider = 'github';
+  var token = '${safeToken}';
+
+  if (!window.opener) {
+    document.getElementById('msg').textContent =
+      '認証エラー: ポップアップウィンドウが見つかりません。管理画面を開き直してください。';
+    return;
   }
-  sendMessage('github', '${tokenData.access_token}');
+
+  // Step 1: Send handshake message to CMS
+  window.opener.postMessage('authorizing:' + provider, '*');
+
+  // Step 2: Wait for handshake response, then send auth token
+  window.addEventListener('message', function handler(e) {
+    if (e.data === 'authorizing:' + provider) {
+      window.removeEventListener('message', handler, false);
+      var data = JSON.stringify({ token: token, provider: provider });
+      window.opener.postMessage(
+        'authorization:' + provider + ':success:' + data,
+        e.origin
+      );
+      setTimeout(function() { window.close(); }, 1000);
+    }
+  }, false);
 })();
 </script>
-<p>認証が完了しました。このウィンドウは自動的に閉じます。</p>
+<p id="msg">認証が完了しました。このウィンドウは自動的に閉じます。</p>
 </body>
 </html>`;
 
