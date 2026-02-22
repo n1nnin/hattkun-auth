@@ -1,8 +1,6 @@
-// GitHub OAuth proxy for Sveltia CMS / Decap CMS
+// GitHub OAuth proxy for Decap CMS
 // Deployed as a Cloudflare Worker
-// Required secrets (set via `wrangler secret put`):
-//   GITHUB_CLIENT_ID
-//   GITHUB_CLIENT_SECRET
+// Required env vars: GITHUB_CLIENT_ID (vars), GITHUB_CLIENT_SECRET (secret)
 
 const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -10,6 +8,7 @@ const ALLOWED_ORIGINS = [
   'https://hattkun-programming.moroku0519.workers.dev',
   'http://localhost:4321',
 ];
+const CMS_ORIGIN = 'https://hattkun-programming.moroku0519.workers.dev';
 
 function corsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -33,19 +32,40 @@ export default {
     // Step 1: Redirect to GitHub OAuth
     if (url.pathname === '/auth') {
       const scope = url.searchParams.get('scope') || 'repo';
+      const state = crypto.randomUUID();
+
+      // Store state in a short-lived cookie for CSRF validation
       const authUrl = new URL(GITHUB_AUTHORIZE_URL);
       authUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
       authUrl.searchParams.set('redirect_uri', `${url.origin}/callback`);
       authUrl.searchParams.set('scope', scope);
-      authUrl.searchParams.set('state', crypto.randomUUID());
-      return Response.redirect(authUrl.toString(), 302);
+      authUrl.searchParams.set('state', state);
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': authUrl.toString(),
+          'Set-Cookie': `oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+        },
+      });
     }
 
     // Step 2: Handle callback from GitHub
     if (url.pathname === '/callback') {
       const code = url.searchParams.get('code');
+      const returnedState = url.searchParams.get('state');
+
       if (!code) {
         return new Response('Missing code parameter', { status: 400 });
+      }
+
+      // Validate state parameter (CSRF protection)
+      const cookies = request.headers.get('Cookie') || '';
+      const stateMatch = cookies.match(/oauth_state=([^;]+)/);
+      const savedState = stateMatch ? stateMatch[1] : null;
+
+      if (!savedState || savedState !== returnedState) {
+        return new Response('Invalid state parameter', { status: 403 });
       }
 
       // Exchange code for access token
@@ -80,6 +100,7 @@ export default {
 (function() {
   var provider = 'github';
   var token = '${safeToken}';
+  var cmsOrigin = '${CMS_ORIGIN}';
 
   if (!window.opener) {
     document.getElementById('msg').textContent =
@@ -88,7 +109,7 @@ export default {
   }
 
   // Step 1: Send handshake message to CMS
-  window.opener.postMessage('authorizing:' + provider, '*');
+  window.opener.postMessage('authorizing:' + provider, cmsOrigin);
 
   // Step 2: Wait for handshake response, then send auth token
   window.addEventListener('message', function handler(e) {
@@ -109,7 +130,10 @@ export default {
 </html>`;
 
       return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Set-Cookie': 'oauth_state=; Path=/; HttpOnly; Secure; Max-Age=0',
+        },
       });
     }
 
